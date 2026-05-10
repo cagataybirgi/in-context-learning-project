@@ -13,12 +13,10 @@ project-root/
 ├── README.md
 │
 ├── scripts/
-│   ├── __init__.py
 │   ├── data_loader.py         ← Loads GSM8K + StrategyQA from HuggingFace
 │   └── metrics.py             ← Answer extraction + Exact Match scoring
 │
 ├── prompts/
-│   ├── __init__.py
 │   └── templates.py           ← Prompt templates for all three strategies
 │
 └── results/                   ← Auto-created on first run
