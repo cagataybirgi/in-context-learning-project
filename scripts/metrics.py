@@ -10,6 +10,11 @@ def extract_gsm8k_answer(text: str) -> str:
     # GSM8K reference answers often use '#### [answer]'
     if "####" in text:
         text = text.split("####")[-1].strip()
+        
+    # Look for a number near a conclusion keyword (catches verbose CoT)
+    answer_markers = re.findall(r'(?:answer|total|therefore)[^\d]*(\d[\d,]*)', text.lower())
+    if answer_markers:
+        return answer_markers[-1].replace(',', '')
     
     # Extract the last number found in the remaining text
     numbers = re.findall(r'[-+]?\d*[\.,]?\d+', text)
@@ -22,15 +27,22 @@ def extract_strategyqa_answer(text: str) -> str:
     """
     Extracts the boolean Yes/No answer from a StrategyQA generation.
     """
-    text = str(text).lower()
+    text = str(text).lower().strip()
     
-    # Check for explicit statements common in reasoning traces
+    # Step 1: Explicit conclusion statements
     if "answer is yes" in text or "therefore, yes" in text:
         return "yes"
     elif "answer is no" in text or "therefore, no" in text:
         return "no"
     
-    # Fallback to the last occurrence of yes or no
+    # Step 2: Check the final word/sentence ending (catches CoT that concludes with yes/no)
+    final_word = text.rstrip(".!?, ").split()[-1] if text.split() else ""
+    if final_word == "yes":
+        return "yes"
+    elif final_word == "no":
+        return "no"
+
+    # Step 3: Fallback — last occurrence of yes or no anywhere in the text
     words = re.findall(r'\b(yes|no)\b', text)
     if words:
         return words[-1]
