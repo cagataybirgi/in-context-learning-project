@@ -13,6 +13,7 @@ import csv
 import json
 from pathlib import Path
 from datetime import datetime
+from typing import Optional, List
 
 from openai import OpenAI
 import pandas as pd
@@ -68,7 +69,7 @@ def run_experiment(
     dataset_name: str,
     dataset,
     strategy: str,
-    max_samples: int | None,
+    max_samples: Optional[int],
     results_path: Path,
     already_done: set,
 ) -> dict:
@@ -134,8 +135,23 @@ def run_experiment(
     if n == 0:
         return {"dataset": dataset_name, "strategy": strategy, "n": 0, "em": 0.0, "parse_failure_rate": 0.0}
 
-    em = calculate_exact_match(predictions, [s["answer"] for s in samples], dataset_name)
-    pfr = (parse_failures / n) * 100
+    # Re-read the full CSV for this (dataset, strategy) pair so EM is correct
+    # even after a resumed run where `predictions` only holds newly-run rows.
+    try:
+        df_full = pd.read_csv(results_path)
+        df_run  = df_full[
+            (df_full["dataset"] == dataset_name) &
+            (df_full["strategy"] == strategy)
+        ]
+        completed_n = len(df_run)
+        correct_n   = int(df_run["is_correct"].sum())
+        pfail_n     = int(df_run["parse_failed"].sum())
+        em  = (correct_n / completed_n) * 100 if completed_n > 0 else 0.0
+        pfr = (pfail_n  / completed_n) * 100 if completed_n > 0 else 0.0
+    except Exception:
+        # Fallback: in-memory calc (only accurate on a fresh non-resumed run)
+        em  = calculate_exact_match(predictions, [s["answer"] for s in samples], dataset_name)
+        pfr = (parse_failures / n) * 100
 
     print(f"\n  ✓ Executed: {n} | EM = {em:.1f}% | Parse-failure rate = {pfr:.1f}%")
     return {"dataset": dataset_name, "strategy": strategy, "n": n, "em": em, "parse_failure_rate": pfr}
@@ -151,7 +167,7 @@ def load_already_done(results_dir: Path) -> set:
             pass
     return done
 
-def save_summary(summary_rows: list[dict], results_dir: Path):
+def save_summary(summary_rows: List[dict], results_dir: Path):
     df = pd.DataFrame(summary_rows)
     summary_path = results_dir / "summary.csv"
     df.to_csv(summary_path, index=False)
