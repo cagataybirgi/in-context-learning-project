@@ -1,6 +1,4 @@
-transformers>=4.40.0
+openai
 datasets
-torch
-accelerate
-vllm
-evaluate
+pandas
+tqdm
