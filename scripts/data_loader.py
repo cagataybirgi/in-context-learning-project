@@ -8,7 +8,7 @@ def load_evaluation_datasets():
     gsm8k = load_dataset("openai/gsm8k", "main", split="test")
     print("Loading StrategyQA (Commonsense Reasoning)...")
     # Using an open-source Hugging Face mirror for StrategyQA
-    strategyqa = load_dataset("lucasmccabe-lmi/strategyqa", split="test")
+    strategyqa = load_dataset("ChilleD/StrategyQA", split="test")
     return gsm8k, strategyqa
 
 def inspect_datasets(gsm8k, strategyqa):
