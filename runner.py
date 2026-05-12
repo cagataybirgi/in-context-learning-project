@@ -24,7 +24,7 @@ from scripts.metrics import extract_gsm8k_answer, extract_strategyqa_answer, cal
 from prompts.templates import get_prompt
 # OpenRouter model syntax (provider/model_name)
 MODEL           = "nvidia/nemotron-3-super-120b-a12b:free"
-MAX_TOKENS      = 512
+MAX_TOKENS      = 1500
 TEMPERATURE     = 0.0
 RESULTS_DIR     = Path("results")
 TIMESTAMP       = datetime.now().strftime("%Y%m%d_%H%M%S")
