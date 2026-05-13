@@ -1,0 +1,60 @@
+{
+  "experiment": "In-Context Learning: Chain-of-Thought vs Few-Shot Prompting",
+  "configuration": {
+    "model": "nvidia/nemotron-3-super-120b-a12b:free",
+    "provider": "OpenRouter",
+    "temperature": 0.0,
+    "max_tokens": 1500,
+    "samples_per_combination": 10,
+    "metric": "Exact Match (EM)"
+  },
+  "results": [
+    {
+      "dataset": "gsm8k",
+      "strategy": "standard_few_shot",
+      "n": 10,
+      "em": 100.0,
+      "parse_failure_rate": 0.0
+    },
+    {
+      "dataset": "gsm8k",
+      "strategy": "zero_shot_cot",
+      "n": 10,
+      "em": 90.0,
+      "parse_failure_rate": 0.0
+    },
+    {
+      "dataset": "gsm8k",
+      "strategy": "persona_prompting",
+      "n": 10,
+      "em": 80.0,
+      "parse_failure_rate": 0.0
+    },
+    {
+      "dataset": "strategyqa",
+      "strategy": "standard_few_shot",
+      "n": 10,
+      "em": 80.0,
+      "parse_failure_rate": 0.0
+    },
+    {
+      "dataset": "strategyqa",
+      "strategy": "zero_shot_cot",
+      "n": 10,
+      "em": 50.0,
+      "parse_failure_rate": 10.0
+    },
+    {
+      "dataset": "strategyqa",
+      "strategy": "persona_prompting",
+      "n": 10,
+      "em": 50.0,
+      "parse_failure_rate": 10.0
+    }
+  ],
+  "pivot_em_by_strategy": {
+    "standard_few_shot": {"gsm8k": 100.0, "strategyqa": 80.0},
+    "zero_shot_cot":     {"gsm8k": 90.0,  "strategyqa": 50.0},
+    "persona_prompting": {"gsm8k": 80.0,  "strategyqa": 50.0}
+  }
+}
