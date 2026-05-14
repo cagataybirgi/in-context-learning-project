@@ -13,7 +13,7 @@
       "dataset": "gsm8k",
       "strategy": "standard_few_shot",
       "n": 10,
-      "em": 100.0,
+      "em": 90.0,
       "parse_failure_rate": 0.0
     },
     {
@@ -35,7 +35,7 @@
       "strategy": "standard_few_shot",
       "n": 10,
       "em": 80.0,
-      "parse_failure_rate": 0.0
+      "parse_failure_rate": 10.0
     },
     {
       "dataset": "strategyqa",
@@ -53,8 +53,8 @@
     }
   ],
   "pivot_em_by_strategy": {
-    "standard_few_shot": {"gsm8k": 100.0, "strategyqa": 80.0},
-    "zero_shot_cot":     {"gsm8k": 90.0,  "strategyqa": 50.0},
-    "persona_prompting": {"gsm8k": 80.0,  "strategyqa": 50.0}
+    "standard_few_shot": {"gsm8k": 90.0, "strategyqa": 80.0},
+    "zero_shot_cot":     {"gsm8k": 90.0, "strategyqa": 50.0},
+    "persona_prompting": {"gsm8k": 80.0, "strategyqa": 50.0}
   }
 }
