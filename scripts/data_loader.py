@@ -1,5 +1,3 @@
-from os import name
-
 from datasets import load_dataset
 
 def load_evaluation_datasets():
@@ -22,6 +20,6 @@ def inspect_datasets(gsm8k, strategyqa):
     print(f"Question: {sample_sqa['question']}")
     print(f"Target Answer: {sample_sqa['answer']}")
     
-if name == "main":
+if __name__ == "__main__":
     gsm8k, strategyqa = load_evaluation_datasets()
     inspect_datasets(gsm8k, strategyqa)
