@@ -1,8 +1,19 @@
 """
 runner.py — Main experiment script
 ===================================
+
 Runs prompting strategies across datasets using the OpenRouter API.
-Configured for nvidia/nemotron-3-super-120b-a12b:free.
+Configured for nvidia/nemotron-3-super-120b-a12b:free by default.
+
+The runner now exposes the ablation dimensions described in Sections 6 and 7
+of the progress report:
+
+  --structured                  Append an explicit `Answer:` instruction.
+  --k_shot K                    Override the per-strategy default k-shot count.
+  --cot_trigger {default,careful,none}
+  --persona_variant {revised,original,generic}
+  --self_consistency N          Sample N reasoning paths and majority-vote
+                                (requires --temperature > 0).
 """
 
 import os
@@ -20,36 +31,73 @@ import pandas as pd
 from tqdm import tqdm
 
 from scripts.data_loader import load_evaluation_datasets
-from scripts.metrics import extract_gsm8k_answer, extract_strategyqa_answer, calculate_exact_match
+from scripts.metrics import (
+    extract_gsm8k_answer,
+    extract_strategyqa_answer,
+    calculate_exact_match,
+    majority_vote,
+)
 from prompts.templates import get_prompt
-# OpenRouter model syntax (provider/model_name)
-MODEL           = "nvidia/nemotron-3-super-120b-a12b:free"
-MAX_TOKENS      = 1500
-TEMPERATURE     = 0.0
+
 RESULTS_DIR     = Path("results")
 TIMESTAMP       = datetime.now().strftime("%Y%m%d_%H%M%S")
 
 DATASETS    = ["gsm8k", "strategyqa"]
 STRATEGIES  = ["standard_few_shot", "zero_shot_cot", "persona_prompting"]
-RATE_LIMIT_SLEEP = 0.5  
+RATE_LIMIT_SLEEP = 0.5
 
-def call_openrouter(client: OpenAI, prompt: str) -> str:
+# Per-sample CSV schema.  `condition` records the active ablation cell so the
+# same results file can hold rows from many sweeps without ambiguity.
+CSV_FIELDS = [
+    "dataset", "strategy", "sample_idx",
+    "question", "gold_answer", "generation",
+    "predicted_answer", "is_correct", "parse_failed",
+    "prompt_tokens", "completion_tokens", "total_tokens", "latency_s",
+    "condition",
+]
+
+
+def call_openrouter(
+    client: OpenAI,
+    prompt: str,
+    model: str,
+    max_tokens: int,
+    temperature: float,
+    n: int = 1,
+):
+    """
+    Returns (texts, prompt_tokens, completion_tokens, latency_s).
+
+    `texts` is a list of length `n`.  When `n == 1` the list has a single
+    element; callers that don't need self-consistency can take `texts[0]`.
+    """
     for attempt in range(3):
         try:
+            t0 = time.time()
             response = client.chat.completions.create(
-                model=MODEL,
+                model=model,
                 messages=[{"role": "user", "content": prompt}],
-                temperature=TEMPERATURE,
-                max_tokens=MAX_TOKENS,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                n=n,
             )
-            return response.choices[0].message.content or ""
+            latency = time.time() - t0
+            texts = [(c.message.content or "") for c in response.choices]
+            # Some providers return < n choices if the upstream sampler stalled.
+            while len(texts) < n:
+                texts.append("")
+            usage = getattr(response, "usage", None)
+            prompt_tokens     = getattr(usage, "prompt_tokens",     0) if usage else 0
+            completion_tokens = getattr(usage, "completion_tokens", 0) if usage else 0
+            return texts, prompt_tokens, completion_tokens, latency
         except Exception as e:
             wait = 2 ** attempt * 2
             print(f"\n  [API Error] {e} | Waiting {wait}s before retry {attempt+1}/3 …")
             if attempt == 2:
-                return ""
+                return [""] * n, 0, 0, 0.0
             time.sleep(wait)
-    return ""
+    return [""] * n, 0, 0, 0.0
+
 
 def get_reference(sample: dict, dataset: str) -> str:
     if dataset == "gsm8k":
@@ -58,11 +106,27 @@ def get_reference(sample: dict, dataset: str) -> str:
         raw = sample["answer"]
         return "yes" if raw is True or str(raw).lower() == "true" else "no"
 
+
 def extract_prediction(generation: str, dataset: str) -> str:
     if dataset == "gsm8k":
         return extract_gsm8k_answer(generation)
     else:
         return extract_strategyqa_answer(generation)
+
+
+def _condition_label(args) -> str:
+    """Compact ablation tag stored on each row for grouping in analysis."""
+    bits = [
+        f"k={args.k_shot if args.k_shot is not None else 'def'}",
+        f"trig={args.cot_trigger}",
+        f"persona={args.persona_variant}",
+        f"struct={'on' if args.structured else 'off'}",
+        f"mt={args.max_tokens}",
+        f"T={args.temperature}",
+        f"sc={args.self_consistency}",
+    ]
+    return ",".join(bits)
+
 
 def run_experiment(
     client: OpenAI,
@@ -72,6 +136,16 @@ def run_experiment(
     max_samples: Optional[int],
     results_path: Path,
     already_done: set,
+    model: str,
+    max_tokens: int,
+    temperature: float,
+    *,
+    structured: bool,
+    k_shot: Optional[int],
+    cot_trigger: str,
+    persona_variant: str,
+    self_consistency: int,
+    condition: str,
 ) -> dict:
     samples = dataset if max_samples is None else dataset.select(range(min(max_samples, len(dataset))))
     n = len(samples)
@@ -81,33 +155,47 @@ def run_experiment(
 
     write_header = not results_path.exists()
     csv_file = open(results_path, "a", newline="", encoding="utf-8")
-    writer = csv.DictWriter(csv_file, fieldnames=[
-        "dataset", "strategy", "sample_idx",
-        "question", "gold_answer", "generation",
-        "predicted_answer", "is_correct", "parse_failed"
-    ])
+    writer = csv.DictWriter(csv_file, fieldnames=CSV_FIELDS)
     if write_header:
         writer.writeheader()
 
     print(f"\n{'='*60}")
-    print(f"  Dataset : {dataset_name.upper()}")
-    print(f"  Strategy: {strategy}")
-    print(f"  Samples : {n}")
+    print(f"  Dataset  : {dataset_name.upper()}")
+    print(f"  Strategy : {strategy}")
+    print(f"  Samples  : {n}")
+    print(f"  Condition: {condition}")
     print(f"{'='*60}")
 
     for idx, sample in enumerate(tqdm(samples, desc=f"{dataset_name}/{strategy}", ncols=72)):
-        row_key = (dataset_name, strategy, idx)
+        row_key = (dataset_name, strategy, idx, condition)
         if row_key in already_done:
             continue
 
         question  = sample["question"]
         gold      = get_reference(sample, dataset_name)
-        prompt    = get_prompt(dataset_name, strategy, question)
+        prompt    = get_prompt(
+            dataset_name,
+            strategy,
+            question,
+            k_shot=k_shot,
+            cot_trigger=cot_trigger,
+            persona_variant=persona_variant,
+            structured=structured,
+        )
 
-        generation = call_openrouter(client, prompt)
+        generations, ptok, ctok, latency = call_openrouter(
+            client, prompt, model, max_tokens, temperature, n=self_consistency
+        )
         time.sleep(RATE_LIMIT_SLEEP)
 
-        predicted = extract_prediction(generation, dataset_name)
+        if self_consistency > 1:
+            candidate_answers = [extract_prediction(g, dataset_name) for g in generations]
+            predicted = majority_vote(candidate_answers)
+            generation = " ||| ".join(generations)  # keep raw paths for analysis
+        else:
+            generation = generations[0]
+            predicted = extract_prediction(generation, dataset_name)
+
         is_correct = (predicted == gold and predicted != "")
         failed = predicted == ""
 
@@ -127,6 +215,11 @@ def run_experiment(
             "predicted_answer": predicted,
             "is_correct":       int(is_correct),
             "parse_failed":     int(failed),
+            "prompt_tokens":    ptok,
+            "completion_tokens": ctok,
+            "total_tokens":     ptok + ctok,
+            "latency_s":        round(latency, 2),
+            "condition":        condition,
         })
         csv_file.flush()
 
@@ -135,37 +228,66 @@ def run_experiment(
     if n == 0:
         return {"dataset": dataset_name, "strategy": strategy, "n": 0, "em": 0.0, "parse_failure_rate": 0.0}
 
-    # Re-read the full CSV for this (dataset, strategy) pair so EM is correct
-    # even after a resumed run where `predictions` only holds newly-run rows.
+    # Re-read the CSV so resumed runs aggregate correctly.
     try:
         df_full = pd.read_csv(results_path)
-        df_run  = df_full[
-            (df_full["dataset"] == dataset_name) &
-            (df_full["strategy"] == strategy)
+        df_run = df_full[
+            (df_full["dataset"] == dataset_name)
+            & (df_full["strategy"] == strategy)
+            & (df_full.get("condition", condition) == condition)
         ]
         completed_n = len(df_run)
         correct_n   = int(df_run["is_correct"].sum())
         pfail_n     = int(df_run["parse_failed"].sum())
         em  = (correct_n / completed_n) * 100 if completed_n > 0 else 0.0
         pfr = (pfail_n  / completed_n) * 100 if completed_n > 0 else 0.0
+        avg_prompt_tokens     = float(df_run["prompt_tokens"].mean())
+        avg_completion_tokens = float(df_run["completion_tokens"].mean())
+        avg_total_tokens      = float(df_run["total_tokens"].mean())
+        total_tokens_used     = int(df_run["total_tokens"].sum())
+        avg_latency           = float(df_run["latency_s"].mean())
     except Exception:
-        # Fallback: in-memory calc (only accurate on a fresh non-resumed run)
         em  = calculate_exact_match(predictions, [s["answer"] for s in samples], dataset_name)
         pfr = (parse_failures / n) * 100
+        avg_prompt_tokens = avg_completion_tokens = avg_total_tokens = avg_latency = 0.0
+        total_tokens_used = 0
 
     print(f"\n  ✓ Executed: {n} | EM = {em:.1f}% | Parse-failure rate = {pfr:.1f}%")
-    return {"dataset": dataset_name, "strategy": strategy, "n": n, "em": em, "parse_failure_rate": pfr}
+    print(f"  ⏱ Avg latency: {avg_latency:.1f}s | Avg total tokens: {avg_total_tokens:.0f} | Total tokens used: {total_tokens_used}")
+
+    return {
+        "dataset":               dataset_name,
+        "strategy":              strategy,
+        "condition":             condition,
+        "n":                     n,
+        "em":                    em,
+        "parse_failure_rate":    pfr,
+        "avg_prompt_tokens":     round(avg_prompt_tokens, 1),
+        "avg_completion_tokens": round(avg_completion_tokens, 1),
+        "avg_total_tokens":      round(avg_total_tokens, 1),
+        "total_tokens_used":     total_tokens_used,
+        "avg_latency_s":         round(avg_latency, 2),
+    }
+
 
 def load_already_done(results_dir: Path) -> set:
+    """
+    Build the set of (dataset, strategy, sample_idx, condition) keys already
+    captured across every `run_*.csv` file in `results_dir`.  Older runs
+    without a `condition` column are credited to the default condition.
+    """
     done = set()
     for f in results_dir.glob("run_*.csv"):
         try:
             df = pd.read_csv(f)
-            for _, row in df.iterrows():
-                done.add((row["dataset"], row["strategy"], int(row["sample_idx"])))
+            cond_col = df["condition"] if "condition" in df.columns else None
+            for i, row in df.iterrows():
+                cond = cond_col.iloc[i] if cond_col is not None else "legacy"  # pyright: ignore[reportArgumentType, reportCallIssue]
+                done.add((row["dataset"], row["strategy"], int(row["sample_idx"]), cond))
         except Exception:
             pass
     return done
+
 
 def save_summary(summary_rows: List[dict], results_dir: Path):
     df = pd.DataFrame(summary_rows)
@@ -175,12 +297,16 @@ def save_summary(summary_rows: List[dict], results_dir: Path):
     print("\n" + "="*60)
     print("  EXPERIMENT SUMMARY")
     print("="*60)
-    pivot = df.pivot_table(index="strategy", columns="dataset", values="em", aggfunc="mean")
-    print(pivot.to_string())
+    try:
+        pivot = df.pivot_table(index="strategy", columns="dataset", values="em", aggfunc="mean")
+        print(pivot.to_string())
+    except Exception:
+        print(df.to_string(index=False))
     print(f"\nFull summary saved → {summary_path}")
 
     json_path = results_dir / "summary.json"
     json_path.write_text(json.dumps(summary_rows, indent=2))
+
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Run prompting strategy experiments.")
@@ -188,16 +314,39 @@ def parse_args():
     parser.add_argument("--strategies",  nargs="+", default=STRATEGIES, choices=STRATEGIES)
     parser.add_argument("--max_samples", type=int,  default=None)
     parser.add_argument("--resume",      action="store_true")
+    parser.add_argument("--model", type=str, default="nvidia/nemotron-3-super-120b-a12b:free")
+    parser.add_argument("--max_tokens", type=int, default=1500)
+    parser.add_argument("--temperature", type=float, default=0.0)
+
+    # New ablation knobs.
+    parser.add_argument("--structured", action="store_true",
+                        help="Append the explicit Answer: instruction (Section 6).")
+    parser.add_argument("--k_shot", type=int, default=None,
+                        help="Override the per-strategy default number of demonstrations.")
+    parser.add_argument("--cot_trigger", choices=["default", "careful", "none"], default="default",
+                        help="Choose which CoT trigger phrase to use.")
+    parser.add_argument("--persona_variant", choices=["revised", "original", "generic"],
+                        default="revised", help="Persona phrasing variant (Section 6 revision).")
+    parser.add_argument("--self_consistency", type=int, default=1,
+                        help="Number of sampled reasoning paths to majority-vote over.")
     return parser.parse_args()
+
 
 def main():
     args = parse_args()
+
+    if args.self_consistency > 1 and args.temperature == 0.0:
+        print(
+            "[WARN] --self_consistency > 1 with temperature=0.0 will produce "
+            "identical samples; set --temperature 0.7 (or similar) for it to "
+            "have any effect."
+        )
 
     api_key = os.environ.get("OPENROUTER_API_KEY")
     if not api_key:
         print("[ERROR] OPENROUTER_API_KEY environment variable not set.")
         sys.exit(1)
-        
+
     client = OpenAI(
         base_url="https://openrouter.ai/api/v1",
         api_key=api_key,
@@ -210,22 +359,34 @@ def main():
     gsm8k, strategyqa = load_evaluation_datasets()
     dataset_map = {"gsm8k": gsm8k, "strategyqa": strategyqa}
 
+    condition = _condition_label(args)
+
     summary_rows = []
     for dataset_name in args.datasets:
         for strategy in args.strategies:
             result = run_experiment(
-                client       = client,
-                dataset_name = dataset_name,
-                dataset      = dataset_map[dataset_name],
-                strategy     = strategy,
-                max_samples  = args.max_samples,
-                results_path = results_path,
-                already_done = already_done,
+                client          = client,
+                dataset_name    = dataset_name,
+                dataset         = dataset_map[dataset_name],
+                strategy        = strategy,
+                max_samples     = args.max_samples,
+                results_path    = results_path,
+                already_done    = already_done,
+                model           = args.model,
+                max_tokens      = args.max_tokens,
+                temperature     = args.temperature,
+                structured      = args.structured,
+                k_shot          = args.k_shot,
+                cot_trigger     = args.cot_trigger,
+                persona_variant = args.persona_variant,
+                self_consistency= max(1, args.self_consistency),
+                condition       = condition,
             )
             summary_rows.append(result)
 
     if summary_rows:
         save_summary(summary_rows, RESULTS_DIR)
+
 
 if __name__ == "__main__":
     main()
