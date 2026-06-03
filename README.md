@@ -92,6 +92,42 @@ python runner.py --datasets gsm8k --strategies zero_shot_cot --max_samples 50
 python runner.py --resume
 ```
 
+### Final-submission ablation flags (Sections 6 & 7 of the progress report)
+
+| Flag | Effect |
+|---|---|
+| `--structured` | Append an explicit `Answer: ...` instruction. Mitigation for the residual 10% parse-failure rate on StrategyQA. |
+| `--k_shot N` | Override the default per-strategy demonstration count. Used for the 0/1/3/5-shot ablation. |
+| `--cot_trigger {default,careful,none}` | Swap the CoT trigger phrase to measure trigger sensitivity. |
+| `--persona_variant {revised,original,generic}` | Persona phrasing variant — `revised` (default) is the concise version called for in Section 6. |
+| `--self_consistency N` | Sample `N` reasoning paths per prompt and majority-vote the answer (requires `--temperature > 0`). |
+
+Example — recommended final-submission configuration on 100 samples:
+
+```bash
+python runner.py --structured --max_samples 100 --persona_variant revised
+```
+
+### Ablation sweep
+
+Run the strategy × decoding × dataset matrix described in Section 7:
+
+```bash
+# Section 11 plan: max_tokens sweep + structured-on/off
+python -m scripts.ablation --max_samples 50
+
+# All ablation dimensions (k-shot, CoT trigger, persona, structured, max_tokens)
+python -m scripts.ablation --max_samples 50 --full
+```
+
+### Error analysis
+
+Categorise failures into truncation / reasoning / extraction (Section 8):
+
+```bash
+python -m scripts.error_analysis results/run_*.csv
+```
+
 ---
 
 ## Prompting Strategies
