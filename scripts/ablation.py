@@ -38,6 +38,7 @@ from openai import OpenAI
 
 from runner import (
     RESULTS_DIR,
+    FatalAPIError,
     load_already_done,
     run_experiment,
     save_summary,
@@ -80,7 +81,7 @@ def main():
                         default=["standard_few_shot", "zero_shot_cot", "persona_prompting"])
     parser.add_argument("--max_samples", type=int, default=50,
                         help="Samples per (strategy, condition) cell.")
-    parser.add_argument("--model", type=str, default="nvidia/nemotron-3-super-120b-a12b:free")
+    parser.add_argument("--model", type=str, default="nvidia/nemotron-3-super-120b-a12b")
     parser.add_argument("--resume", action="store_true")
     parser.add_argument(
         "--dims", nargs="+", default=DEFAULT_DIMS, choices=list(DIM_VALUES.keys()),
@@ -93,11 +94,15 @@ def main():
 
     active_dims = list(DIM_VALUES.keys()) if args.full else args.dims
 
-    api_key = os.environ.get("OPENROUTER_API_KEY")
+    api_key = os.environ.get("NVIDIA_API_KEY")
     if not api_key:
-        print("[ERROR] OPENROUTER_API_KEY environment variable not set.")
+        print("[ERROR] NVIDIA_API_KEY environment variable not set.")
         sys.exit(1)
-    client = OpenAI(base_url="https://openrouter.ai/api/v1", api_key=api_key)
+    client = OpenAI(
+        base_url="https://integrate.api.nvidia.com/v1",
+        api_key=api_key,
+        timeout=90.0,   # see runner.main() for rationale
+    )
 
     RESULTS_DIR.mkdir(exist_ok=True)
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -119,29 +124,38 @@ def main():
     }
 
     summary_rows: List[dict] = []
-    for cfg in _iter_conditions(active_dims, base):
-        condition = _condition_label(_Args(**cfg))
-        for dataset_name in args.datasets:
-            for strategy in args.strategies:
-                result = run_experiment(
-                    client            = client,
-                    dataset_name      = dataset_name,
-                    dataset           = dataset_map[dataset_name],
-                    strategy          = strategy,
-                    max_samples       = args.max_samples,
-                    results_path      = results_path,
-                    already_done      = already_done,
-                    model             = args.model,
-                    max_tokens        = cfg["max_tokens"],
-                    temperature       = cfg["temperature"],
-                    structured        = cfg["structured"],
-                    k_shot            = cfg["k_shot"],
-                    cot_trigger       = cfg["cot_trigger"],
-                    persona_variant   = cfg["persona_variant"],
-                    self_consistency  = cfg["self_consistency"],
-                    condition         = condition,
-                )
-                summary_rows.append(result)
+    try:
+        for cfg in _iter_conditions(active_dims, base):
+            condition = _condition_label(_Args(**cfg))
+            for dataset_name in args.datasets:
+                for strategy in args.strategies:
+                    result = run_experiment(
+                        client            = client,
+                        dataset_name      = dataset_name,
+                        dataset           = dataset_map[dataset_name],
+                        strategy          = strategy,
+                        max_samples       = args.max_samples,
+                        results_path      = results_path,
+                        already_done      = already_done,
+                        model             = args.model,
+                        max_tokens        = cfg["max_tokens"],
+                        temperature       = cfg["temperature"],
+                        structured        = cfg["structured"],
+                        k_shot            = cfg["k_shot"],
+                        cot_trigger       = cfg["cot_trigger"],
+                        persona_variant   = cfg["persona_variant"],
+                        self_consistency  = cfg["self_consistency"],
+                        condition         = condition,
+                    )
+                    summary_rows.append(result)
+    except FatalAPIError as e:
+        print(f"\n[FATAL] {e}", file=sys.stderr)
+        print(
+            "Fix the cause and rerun with `--resume` — completed rows are "
+            "already on disk and will be skipped.",
+            file=sys.stderr,
+        )
+        sys.exit(2)
 
     if summary_rows:
         save_summary(summary_rows, RESULTS_DIR)
