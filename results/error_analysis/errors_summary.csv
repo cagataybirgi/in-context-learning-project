@@ -1,0 +1,7 @@
+dataset,strategy,extraction,reasoning
+gsm8k,persona_prompting,1,1
+gsm8k,standard_few_shot,0,3
+gsm8k,zero_shot_cot,0,1
+strategyqa,persona_prompting,0,15
+strategyqa,standard_few_shot,0,15
+strategyqa,zero_shot_cot,2,17

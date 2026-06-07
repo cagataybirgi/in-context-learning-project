@@ -1,7 +1,0 @@
-dataset,strategy,n,em,parse_failure_rate,model,temperature,max_tokens
-gsm8k,standard_few_shot,10,90.0,0.0,nvidia/nemotron-3-super-120b-a12b:free,0.0,1500
-gsm8k,zero_shot_cot,10,90.0,0.0,nvidia/nemotron-3-super-120b-a12b:free,0.0,1500
-gsm8k,persona_prompting,10,80.0,0.0,nvidia/nemotron-3-super-120b-a12b:free,0.0,1500
-strategyqa,standard_few_shot,10,80.0,10.0,nvidia/nemotron-3-super-120b-a12b:free,0.0,1500
-strategyqa,zero_shot_cot,10,50.0,10.0,nvidia/nemotron-3-super-120b-a12b:free,0.0,1500
-strategyqa,persona_prompting,10,50.0,10.0,nvidia/nemotron-3-super-120b-a12b:free,0.0,1500

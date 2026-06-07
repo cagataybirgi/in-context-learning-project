@@ -149,17 +149,31 @@ def main():
                 return int(m.group(1))
         return args.max_tokens_hint
 
+    def _row_model(row) -> str:
+        cond = row.get("condition", "")
+        if isinstance(cond, str):
+            m = re.search(r"model=([^,]+)", cond)
+            if m:
+                return m.group(1)
+        return "unknown"
+
     failures["category"] = failures.apply(
         lambda r: categorise_row(r, r["dataset"], _row_max_tokens(r)), axis=1
     )
+    failures["model"] = failures.apply(_row_model, axis=1)
 
     out_dir = Path(args.out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     errors_path = out_dir / "errors.csv"
     failures.to_csv(errors_path, index=False)
 
+    # Group by model when the column is informative, otherwise fall back to
+    # the old (dataset, strategy) breakdown.
+    group_cols = ["dataset", "strategy"]
+    if failures["model"].nunique() > 1:
+        group_cols = ["model", "dataset", "strategy"]
     summary = (
-        failures.groupby(["dataset", "strategy", "category"])
+        failures.groupby(group_cols + ["category"])
                 .size()
                 .unstack(fill_value=0)
                 .reset_index()

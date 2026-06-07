@@ -113,7 +113,10 @@ def main():
     dataset_map = {"gsm8k": gsm8k, "strategyqa": strategyqa}
 
     # Sensible defaults for fields that are not part of the sweep.
+    # `model` is carried through so `_condition_label` can tag each row
+    # with the active model — important when multiple models share one CSV.
     base = {
+        "model":           args.model,
         "max_tokens":      1500,
         "k_shot":          None,
         "cot_trigger":     "default",

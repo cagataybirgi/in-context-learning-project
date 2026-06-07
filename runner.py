@@ -139,8 +139,17 @@ def extract_prediction(generation: str, dataset: str) -> str:
 
 
 def _condition_label(args) -> str:
-    """Compact ablation tag stored on each row for grouping in analysis."""
+    """
+    Compact ablation tag stored on each row for grouping in analysis.
+
+    `model=` is included so that runs against multiple LLMs (e.g. Nemotron
+    vs Llama) sharing the same `run_*.csv` can be split unambiguously.
+    Tolerates an `args` object without `.model` (older callers): in that
+    case the field is emitted as `model=unknown`.
+    """
+    model = getattr(args, "model", None) or "unknown"
     bits = [
+        f"model={model}",
         f"k={args.k_shot if args.k_shot is not None else 'def'}",
         f"trig={args.cot_trigger}",
         f"persona={args.persona_variant}",
