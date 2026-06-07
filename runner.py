@@ -2,8 +2,8 @@
 runner.py — Main experiment script
 ===================================
 
-Runs prompting strategies across datasets using the OpenRouter API.
-Configured for nvidia/nemotron-3-super-120b-a12b:free by default.
+Runs prompting strategies across datasets using the NVIDIA Integrate API.
+Configured for nvidia/nemotron-3-super-120b-a12b by default.
 
 The runner now exposes the ablation dimensions described in Sections 6 and 7
 of the progress report:
@@ -27,8 +27,13 @@ from datetime import datetime
 from typing import Optional, List
 
 from openai import OpenAI
+from openai import AuthenticationError, PermissionDeniedError, NotFoundError
 import pandas as pd
 from tqdm import tqdm
+
+
+class FatalAPIError(RuntimeError):
+    """Raised for un-retryable provider errors (auth / model-not-found)."""
 
 from scripts.data_loader import load_evaluation_datasets
 from scripts.metrics import (
@@ -44,7 +49,18 @@ TIMESTAMP       = datetime.now().strftime("%Y%m%d_%H%M%S")
 
 DATASETS    = ["gsm8k", "strategyqa"]
 STRATEGIES  = ["standard_few_shot", "zero_shot_cot", "persona_prompting"]
-RATE_LIMIT_SLEEP = 0.5
+
+# NVIDIA NIM trial-tier constraints
+# ----------------------------------
+#   * Hard cap: 40 requests / minute  → 1.50 s minimum spacing.
+#   * Context window (input + output): 16,384 tokens for
+#     nvidia/nemotron-3-super-120b-a12b.
+# Sleep slightly above the floor to leave headroom for API latency jitter and
+# avoid sliding-window edge cases (39 quick requests + 1 slow request would
+# otherwise straddle the 60-s boundary).
+NVIDIA_RPM_CAP    = 40
+RATE_LIMIT_SLEEP  = 60.0 / NVIDIA_RPM_CAP + 0.1   # ≈ 1.6 s
+MODEL_CONTEXT_WINDOW = 16384
 
 # Per-sample CSV schema.  `condition` records the active ablation cell so the
 # same results file can hold rows from many sweeps without ambiguity.
@@ -57,7 +73,7 @@ CSV_FIELDS = [
 ]
 
 
-def call_openrouter(
+def call_llm(
     client: OpenAI,
     prompt: str,
     model: str,
@@ -90,6 +106,14 @@ def call_openrouter(
             prompt_tokens     = getattr(usage, "prompt_tokens",     0) if usage else 0
             completion_tokens = getattr(usage, "completion_tokens", 0) if usage else 0
             return texts, prompt_tokens, completion_tokens, latency
+        except (AuthenticationError, PermissionDeniedError, NotFoundError) as e:
+            # 401 / 403 / 404 — re-trying won't help; abort the whole run so
+            # the user fixes their key (or model name) before burning through
+            # 100 samples × 14 s of useless retries.
+            raise FatalAPIError(
+                f"{type(e).__name__}: {e}.  Re-check NVIDIA_API_KEY and the "
+                f"--model name; aborting before more samples are wasted."
+            ) from e
         except Exception as e:
             wait = 2 ** attempt * 2
             print(f"\n  [API Error] {e} | Waiting {wait}s before retry {attempt+1}/3 …")
@@ -183,7 +207,7 @@ def run_experiment(
             structured=structured,
         )
 
-        generations, ptok, ctok, latency = call_openrouter(
+        generations, ptok, ctok, latency = call_llm(
             client, prompt, model, max_tokens, temperature, n=self_consistency
         )
         time.sleep(RATE_LIMIT_SLEEP)
@@ -314,7 +338,7 @@ def parse_args():
     parser.add_argument("--strategies",  nargs="+", default=STRATEGIES, choices=STRATEGIES)
     parser.add_argument("--max_samples", type=int,  default=None)
     parser.add_argument("--resume",      action="store_true")
-    parser.add_argument("--model", type=str, default="nvidia/nemotron-3-super-120b-a12b:free")
+    parser.add_argument("--model", type=str, default="nvidia/nemotron-3-super-120b-a12b")
     parser.add_argument("--max_tokens", type=int, default=1500)
     parser.add_argument("--temperature", type=float, default=0.0)
 
@@ -342,14 +366,31 @@ def main():
             "have any effect."
         )
 
-    api_key = os.environ.get("OPENROUTER_API_KEY")
+    # NVIDIA NIM context-window guard.  The 16,384-token cap covers prompt +
+    # completion; if the requested completion budget alone is too high we will
+    # waste API calls on context-overflow errors.  Reserve at least 2 k tokens
+    # for the prompt (few-shot demos + persona preamble + question).
+    if args.max_tokens > MODEL_CONTEXT_WINDOW - 2048:
+        print(
+            f"[WARN] --max_tokens={args.max_tokens} leaves <2k tokens of the "
+            f"{MODEL_CONTEXT_WINDOW}-token context window for the prompt; "
+            f"expect overflow errors on long few-shot configurations."
+        )
+
+    api_key = os.environ.get("NVIDIA_API_KEY")
     if not api_key:
-        print("[ERROR] OPENROUTER_API_KEY environment variable not set.")
+        print("[ERROR] NVIDIA_API_KEY environment variable not set.")
         sys.exit(1)
 
+    # Per-request timeout of 90 s.  Empirically the slowest legitimate
+    # generation we observed (strategyqa / zero_shot_cot at max_tokens=1500)
+    # tops out around 30 s; anything past 90 s is almost certainly a hung
+    # connection that should be retried by `call_llm`'s backoff loop
+    # instead of blocking on the SDK's 600-s default.
     client = OpenAI(
-        base_url="https://openrouter.ai/api/v1",
+        base_url="https://integrate.api.nvidia.com/v1",
         api_key=api_key,
+        timeout=90.0,
     )
 
     RESULTS_DIR.mkdir(exist_ok=True)
@@ -362,27 +403,36 @@ def main():
     condition = _condition_label(args)
 
     summary_rows = []
-    for dataset_name in args.datasets:
-        for strategy in args.strategies:
-            result = run_experiment(
-                client          = client,
-                dataset_name    = dataset_name,
-                dataset         = dataset_map[dataset_name],
-                strategy        = strategy,
-                max_samples     = args.max_samples,
-                results_path    = results_path,
-                already_done    = already_done,
-                model           = args.model,
-                max_tokens      = args.max_tokens,
-                temperature     = args.temperature,
-                structured      = args.structured,
-                k_shot          = args.k_shot,
-                cot_trigger     = args.cot_trigger,
-                persona_variant = args.persona_variant,
-                self_consistency= max(1, args.self_consistency),
-                condition       = condition,
-            )
-            summary_rows.append(result)
+    try:
+        for dataset_name in args.datasets:
+            for strategy in args.strategies:
+                result = run_experiment(
+                    client          = client,
+                    dataset_name    = dataset_name,
+                    dataset         = dataset_map[dataset_name],
+                    strategy        = strategy,
+                    max_samples     = args.max_samples,
+                    results_path    = results_path,
+                    already_done    = already_done,
+                    model           = args.model,
+                    max_tokens      = args.max_tokens,
+                    temperature     = args.temperature,
+                    structured      = args.structured,
+                    k_shot          = args.k_shot,
+                    cot_trigger     = args.cot_trigger,
+                    persona_variant = args.persona_variant,
+                    self_consistency= max(1, args.self_consistency),
+                    condition       = condition,
+                )
+                summary_rows.append(result)
+    except FatalAPIError as e:
+        print(f"\n[FATAL] {e}", file=sys.stderr)
+        print(
+            "Fix the cause and rerun with `--resume` — completed rows are "
+            "already on disk and will be skipped.",
+            file=sys.stderr,
+        )
+        sys.exit(2)
 
     if summary_rows:
         save_summary(summary_rows, RESULTS_DIR)

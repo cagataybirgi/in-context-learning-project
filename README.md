@@ -2,7 +2,8 @@
 
 Benchmarks three prompting strategies (`standard_few_shot`, `zero_shot_cot`,
 `persona_prompting`) on two reasoning datasets (GSM8K, StrategyQA) using the
-OpenRouter API (default model: `nvidia/nemotron-3-super-120b-a12b:free`).
+NVIDIA Integrate API (default model: `nvidia/nemotron-3-super-120b-a12b`,
+base URL `https://integrate.api.nvidia.com/v1`).
 
 The repository implements the full progress-report plan, including the
 structured-output revision, decoding-parameter ablation, k-shot count
@@ -55,26 +56,49 @@ pip install -r requirements.txt
 
 > Requires **Python 3.9+**.
 
-### 2. Get an OpenRouter API key
+### 2. Get an NVIDIA API key
 
-1. Go to [https://openrouter.ai](https://openrouter.ai) and create a free account.
-2. Navigate to **Keys → Create Key**.
-3. Copy the key (starts with `sk-or-...`).
+1. Go to [https://build.nvidia.com](https://build.nvidia.com) and sign in.
+2. Open the model page for `nvidia/nemotron-3-super-120b-a12b` and click **Get API Key**.
+3. Copy the key (starts with `nvapi-...`).
 
 ### 3. Set the API key
 
 **macOS / Linux:**
 ```bash
-export OPENROUTER_API_KEY="sk-or-..."
+export NVIDIA_API_KEY="nvapi-..."
 ```
 
 **Windows (PowerShell):**
 ```powershell
-$env:OPENROUTER_API_KEY="sk-or-..."
+$env:NVIDIA_API_KEY="nvapi-..."
 ```
 
 To make it permanent, add the export line to your `~/.bashrc` / `~/.zshrc`,
-or use `setx OPENROUTER_API_KEY ...` on Windows.
+or use `setx NVIDIA_API_KEY ...` on Windows.
+
+The runner uses the OpenAI-compatible NVIDIA endpoint:
+
+```python
+client = OpenAI(
+    base_url="https://integrate.api.nvidia.com/v1",
+    api_key=os.environ["NVIDIA_API_KEY"],
+)
+```
+
+### NVIDIA NIM trial-tier limits
+
+The trial tier of `nvidia/nemotron-3-super-120b-a12b` enforces:
+
+| Limit | Value | How the project handles it |
+|---|---|---|
+| Requests per minute | **40 RPM** (hard cap) | `RATE_LIMIT_SLEEP` in `runner.py` is set to `60 / 40 + 0.1 ≈ 1.6 s`, giving ≈ 37 RPM steady-state with headroom for latency jitter. |
+| Context window (input + output) | **16,384 tokens** | The runner warns if `--max_tokens` leaves < 2 k tokens for the prompt. Keep `--max_tokens ≤ 1500` (the default) for the n = 100 final-submission run; use lower values for the decoding sweep. |
+
+> **Throughput note.** At 37 RPM, an end-to-end run of `2 datasets × 3
+> strategies × 100 samples = 600 requests` takes roughly **17 minutes** of
+> wall-clock time. Self-consistency multiplies that by the number of sampled
+> paths.
 
 ### 4. Create package init files (first checkout only)
 
@@ -221,8 +245,11 @@ self-consistency `n`) so a single CSV can hold many sweep cells.
 
 ## Reproducibility
 
-- Default model: `nvidia/nemotron-3-super-120b-a12b:free` (override with `--model`).
+- Default model: `nvidia/nemotron-3-super-120b-a12b` via the NVIDIA Integrate
+  API (`https://integrate.api.nvidia.com/v1`); override with `--model`.
 - Default decoding: greedy (`temperature=0.0`); deterministic across runs.
+- 16,384-token context window (input + output) and 40 RPM trial-tier cap;
+  see *NVIDIA NIM trial-tier limits* in **Setup**.
 - Per-sample rows are streamed to CSV row-by-row; interrupted runs resume
   with `--resume`, which de-duplicates on
   `(dataset, strategy, sample_idx, condition)`.
