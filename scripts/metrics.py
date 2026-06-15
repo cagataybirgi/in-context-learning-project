@@ -158,3 +158,123 @@ def majority_vote(answers: Iterable[str]) -> str:
         if counts[ans] == top:
             return ans
     return cleaned[0]
+
+
+# ---------------------------------------------------------------------------
+# Additional metrics
+# ---------------------------------------------------------------------------
+# Section-5 evaluation augmentation.  The four metrics below complement EM
+# along different axes:
+#
+#   * substring_match   — relaxed EM: gold appears literally inside prediction
+#   * is_numeric_close  — numeric tolerance, captures "36.36 vs 36" rounding
+#                         disagreements on GSM8K
+#   * token_f1          — word-level precision / recall harmonic mean
+#   * rouge_l           — longest-common-subsequence based F1
+#
+# token_f1 and rouge_l are computed in `runner.py` against the *full*
+# generation vs the *full* gold text — degenerate when applied to one-token
+# extracted scalars, so callers should pass texts, not labels.  BERTScore is
+# scored by `scripts/score_bertscore.py` after a run completes (lazy-loaded).
+
+_WORD_RE = re.compile(r"\w+")
+
+
+def _tokenize(text: str) -> List[str]:
+    """Lowercase word-tokenization shared by F1 and ROUGE-L."""
+    if not isinstance(text, str):
+        text = str(text)
+    return _WORD_RE.findall(text.lower())
+
+
+def substring_match(prediction: str, reference: str) -> bool:
+    """
+    Binary: is `reference` a substring of `prediction` (case-insensitive,
+    whitespace-normalised)?  Returns False if either side is empty.
+    """
+    if prediction is None or reference is None:
+        return False
+    p = str(prediction).strip().lower()
+    r = str(reference).strip().lower()
+    if not p or not r:
+        return False
+    return r in p
+
+
+def is_numeric_close(prediction, reference, abs_tol: float = 0.5) -> bool:
+    """
+    Numeric tolerance match.  True iff both sides parse as floats and
+    |prediction - reference| <= abs_tol.
+
+    Default `abs_tol = 0.5` corresponds to "rounds to the same integer" when
+    the gold is an integer (the typical GSM8K case).  This recovers the
+    failure mode where the model writes "Answer: 36.36" but the gold is 36.
+    Pass `abs_tol=0.01` for strict (1%-of-1) tolerance.
+    """
+    def _to_float(x):
+        try:
+            return float(str(x).replace(",", "").strip())
+        except (TypeError, ValueError):
+            return None
+
+    p = _to_float(prediction)
+    r = _to_float(reference)
+    if p is None or r is None:
+        return False
+    return abs(p - r) <= abs_tol
+
+
+def token_f1(prediction: str, reference: str) -> float:
+    """
+    Word-level F1 between two strings.  Tokenisation is lowercase + `\\w+`.
+    Returns 0.0 if either side is empty.  Computes the multiset intersection
+    of tokens (a token contributes at most min(count_pred, count_ref) hits).
+    """
+    pred_tokens = _tokenize(prediction)
+    ref_tokens = _tokenize(reference)
+    if not pred_tokens or not ref_tokens:
+        return 0.0
+    common = Counter(pred_tokens) & Counter(ref_tokens)
+    num_same = sum(common.values())
+    if num_same == 0:
+        return 0.0
+    precision = num_same / len(pred_tokens)
+    recall    = num_same / len(ref_tokens)
+    return 2 * precision * recall / (precision + recall)
+
+
+def _lcs_length(a: List[str], b: List[str]) -> int:
+    """Length of the longest common subsequence of two token lists."""
+    if not a or not b:
+        return 0
+    m, n = len(a), len(b)
+    # Two-row DP saves memory on long GSM8K chains.
+    prev = [0] * (n + 1)
+    curr = [0] * (n + 1)
+    for i in range(m):
+        for j in range(n):
+            if a[i] == b[j]:
+                curr[j + 1] = prev[j] + 1
+            else:
+                curr[j + 1] = max(curr[j], prev[j + 1])
+        prev, curr = curr, prev
+        for k in range(n + 1):
+            curr[k] = 0
+    return prev[n]
+
+
+def rouge_l(prediction: str, reference: str) -> float:
+    """
+    ROUGE-L F1 score based on the longest common subsequence of word
+    tokens.  Returns 0.0 if either side is empty.
+    """
+    pred_tokens = _tokenize(prediction)
+    ref_tokens = _tokenize(reference)
+    if not pred_tokens or not ref_tokens:
+        return 0.0
+    lcs = _lcs_length(pred_tokens, ref_tokens)
+    if lcs == 0:
+        return 0.0
+    precision = lcs / len(pred_tokens)
+    recall    = lcs / len(ref_tokens)
+    return 2 * precision * recall / (precision + recall)

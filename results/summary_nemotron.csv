@@ -1,7 +1,7 @@
-model,dataset,strategy,condition,source_file,n,em,parse_failure_rate,avg_prompt_tokens,avg_completion_tokens,avg_total_tokens,total_tokens_used,avg_latency_s,max_latency_s
-nvidia/nemotron-3-super-120b-a12b,gsm8k,persona_prompting,"k=def,trig=default,persona=revised,struct=on,mt=1500,T=0.0,sc=1",run_20260604_181515.csv,100,99.0,0.0,153.8,438.9,592.7,59271,16.95,70.03
-nvidia/nemotron-3-super-120b-a12b,gsm8k,standard_few_shot,"k=def,trig=default,persona=revised,struct=on,mt=1500,T=0.0,sc=1",run_20260604_181515.csv,100,98.0,0.0,166.8,318.4,485.3,48527,15.82,60.1
-nvidia/nemotron-3-super-120b-a12b,gsm8k,zero_shot_cot,"k=def,trig=default,persona=revised,struct=on,mt=1500,T=0.0,sc=1",run_20260604_181515.csv,100,99.0,0.0,120.8,311.0,431.8,43180,13.63,72.25
-nvidia/nemotron-3-super-120b-a12b,strategyqa,persona_prompting,"k=def,trig=default,persona=revised,struct=on,mt=1500,T=0.0,sc=1",run_20260604_181515.csv,100,89.0,1.0,91.2,308.0,399.2,39917,11.06,50.66
-nvidia/nemotron-3-super-120b-a12b,strategyqa,standard_few_shot,"k=def,trig=default,persona=revised,struct=on,mt=1500,T=0.0,sc=1",run_20260604_181515.csv,100,89.0,0.0,75.2,391.9,467.1,46706,19.19,71.38
-nvidia/nemotron-3-super-120b-a12b,strategyqa,zero_shot_cot,"k=def,trig=default,persona=revised,struct=on,mt=1500,T=0.0,sc=1",run_20260604_181515.csv,100,84.0,0.0,67.2,422.5,489.7,48969,18.34,168.67
+model,dataset,strategy,condition,source_file,n,em,parse_failure_rate,substring_match_rate,numeric_close_rate,avg_token_f1,avg_rouge_l,avg_prompt_tokens,avg_completion_tokens,avg_total_tokens,total_tokens_used,avg_latency_s,max_latency_s
+nvidia/nemotron-3-super-120b-a12b,gsm8k,persona_prompting,"k=def,trig=default,persona=revised,struct=on,mt=1500,T=0.0,sc=1",run_20260604_181515.csv,100,99.0,0.0,100.0,100.0,0.0578,0.0578,153.8,438.9,592.7,59271,16.95,70.03
+nvidia/nemotron-3-super-120b-a12b,gsm8k,standard_few_shot,"k=def,trig=default,persona=revised,struct=on,mt=1500,T=0.0,sc=1",run_20260604_181515.csv,100,98.0,0.0,98.0,98.0,0.369,0.369,166.8,318.4,485.3,48527,15.82,60.1
+nvidia/nemotron-3-super-120b-a12b,gsm8k,zero_shot_cot,"k=def,trig=default,persona=revised,struct=on,mt=1500,T=0.0,sc=1",run_20260604_181515.csv,100,99.0,0.0,100.0,100.0,0.4116,0.4116,120.8,311.0,431.8,43180,13.63,72.25
+nvidia/nemotron-3-super-120b-a12b,strategyqa,persona_prompting,"k=def,trig=default,persona=revised,struct=on,mt=1500,T=0.0,sc=1",run_20260604_181515.csv,100,89.0,1.0,89.0,0.0,0.0933,0.0933,91.2,308.0,399.2,39917,11.06,50.66
+nvidia/nemotron-3-super-120b-a12b,strategyqa,standard_few_shot,"k=def,trig=default,persona=revised,struct=on,mt=1500,T=0.0,sc=1",run_20260604_181515.csv,100,89.0,0.0,89.0,0.0,0.1136,0.1136,75.2,391.9,467.1,46706,19.19,71.38
+nvidia/nemotron-3-super-120b-a12b,strategyqa,zero_shot_cot,"k=def,trig=default,persona=revised,struct=on,mt=1500,T=0.0,sc=1",run_20260604_181515.csv,100,84.0,0.0,84.0,0.0,0.0421,0.0421,67.2,422.5,489.7,48969,18.34,168.67

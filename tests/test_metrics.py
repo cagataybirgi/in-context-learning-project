@@ -2,6 +2,10 @@ from scripts.metrics import (
     extract_gsm8k_answer,
     extract_strategyqa_answer,
     majority_vote,
+    substring_match,
+    is_numeric_close,
+    token_f1,
+    rouge_l,
 )
 
 
@@ -103,3 +107,86 @@ def test_persona_variants_differ():
     orig = build_prompt("gsm8k", "persona_prompting", "Q", persona_variant="original")
     rev  = build_prompt("gsm8k", "persona_prompting", "Q", persona_variant="revised")
     assert orig != rev
+
+
+# ---------------------------------------------------------------------------
+# Augmented metrics
+# ---------------------------------------------------------------------------
+
+def test_substring_match_positive():
+    assert substring_match("The answer is 42 cookies.", "42") is True
+
+
+def test_substring_match_case_insensitive():
+    assert substring_match("ANSWER: yes", "Yes") is True
+
+
+def test_substring_match_negative():
+    assert substring_match("The answer is 99.", "42") is False
+
+
+def test_substring_match_empty_inputs():
+    assert substring_match("", "42") is False
+    assert substring_match("42", "") is False
+
+
+def test_is_numeric_close_within_default_tolerance():
+    # 36.36 vs 36 — within 0.5 absolute tolerance (the recovery case).
+    assert is_numeric_close("36.36", "36") is True
+
+
+def test_is_numeric_close_outside_tolerance():
+    assert is_numeric_close("37", "36") is False
+
+
+def test_is_numeric_close_handles_commas():
+    assert is_numeric_close("1,000", "1000") is True
+
+
+def test_is_numeric_close_non_numeric_returns_false():
+    assert is_numeric_close("yes", "42") is False
+    assert is_numeric_close("", "42") is False
+
+
+def test_is_numeric_close_strict_tolerance():
+    # With abs_tol=0.01, 36.36 vs 36 fails.
+    assert is_numeric_close("36.36", "36", abs_tol=0.01) is False
+
+
+def test_token_f1_identical_strings():
+    assert token_f1("the quick brown fox", "the quick brown fox") == 1.0
+
+
+def test_token_f1_no_overlap():
+    assert token_f1("alpha beta", "gamma delta") == 0.0
+
+
+def test_token_f1_partial_overlap():
+    # 2 shared tokens (the, dog) out of pred=3, ref=3 → P=R=2/3 → F1=2/3.
+    score = token_f1("the dog ran", "the dog jumped")
+    assert abs(score - 2 / 3) < 1e-6
+
+
+def test_token_f1_empty_inputs():
+    assert token_f1("", "anything") == 0.0
+    assert token_f1("anything", "") == 0.0
+
+
+def test_rouge_l_identical_strings():
+    assert rouge_l("the quick brown fox", "the quick brown fox") == 1.0
+
+
+def test_rouge_l_partial_lcs():
+    # Pred "a b c", ref "a c b". LCS = "a b" or "a c" (length 2).
+    # P = 2/3, R = 2/3, F = 2/3.
+    score = rouge_l("a b c", "a c b")
+    assert abs(score - 2 / 3) < 1e-6
+
+
+def test_rouge_l_disjoint_returns_zero():
+    assert rouge_l("a b c", "x y z") == 0.0
+
+
+def test_rouge_l_empty_inputs():
+    assert rouge_l("", "anything") == 0.0
+    assert rouge_l("anything", "") == 0.0
