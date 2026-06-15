@@ -213,6 +213,42 @@ python -m scripts.error_analysis results/run_*.csv
 
 ---
 
+## Evaluation Metrics
+
+Beyond Exact Match (the primary metric), each row is scored along the
+following auxiliary axes:
+
+| Metric | What it measures | Scope |
+|---|---|---|
+| `is_correct` (EM) | Exact match between extracted prediction and gold. | Scalar vs scalar. |
+| `parse_failed` | The extractor returned an empty string. | Scalar. |
+| `substring_match` | Gold appears verbatim inside the prediction (case-insensitive). | Scalar vs scalar — relaxes EM (catches e.g. `Answer: 36.36` vs gold `36`). |
+| `is_numeric_close` | `|pred − gold| ≤ 0.5` (default), GSM8K only. | Numeric scalar vs numeric scalar — recovers integer-rounding disagreements. |
+| `token_f1` | Word-level F1 (precision/recall harmonic mean) of token multisets. | Full generation vs full gold text (GSM8K reasoning chain / StrategyQA label). |
+| `rouge_l` | F1 of the longest common subsequence of word tokens. | Same scope as `token_f1`. |
+| `bertscore_f1` (opt-in) | Contextual-embedding similarity. | Same scope. Computed by `scripts/score_bertscore.py` after the run. |
+
+> Read `token_f1` / `rouge_l` / `bertscore_f1` as **generation-quality / reasoning-alignment** signals alongside EM — they are not direct measures of answer correctness.
+
+### Backfilling metrics onto existing CSVs
+
+For CSVs written before these columns existed, run:
+
+```bash
+python -m scripts.backfill_metrics results/run_*.csv
+```
+
+This recomputes `substring_match`, `is_numeric_close`, `token_f1`, and `rouge_l` from the stored `generation` and `gold_answer` columns without re-querying the API. Caveat: on historical CSVs the comparison is against the extracted scalar (not the full gold reasoning chain) since only the scalar survives in `gold_answer`.
+
+### BERTScore (opt-in)
+
+```bash
+pip install bert_score                          # not a default dependency
+python -m scripts.score_bertscore results/run_*.csv
+```
+
+Writes a `bertscore_f1` column back into each CSV. Skips rows already scored unless `--overwrite` is passed.
+
 ## Datasets
 
 | Dataset | Task | Split | Size | Metric |

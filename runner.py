@@ -41,6 +41,10 @@ from scripts.metrics import (
     extract_strategyqa_answer,
     calculate_exact_match,
     majority_vote,
+    substring_match,
+    is_numeric_close,
+    token_f1,
+    rouge_l,
 )
 from prompts.templates import get_prompt
 
@@ -68,6 +72,11 @@ CSV_FIELDS = [
     "dataset", "strategy", "sample_idx",
     "question", "gold_answer", "generation",
     "predicted_answer", "is_correct", "parse_failed",
+    # Augmented metrics (see scripts/metrics.py).  substring_match and
+    # is_numeric_close compare extracted scalars; token_f1 and rouge_l
+    # compare the full generation against the full gold text.
+    "substring_match", "is_numeric_close",
+    "token_f1", "rouge_l",
     "prompt_tokens", "completion_tokens", "total_tokens", "latency_s",
     "condition",
 ]
@@ -238,6 +247,17 @@ def run_experiment(
         predictions.append(generation)
         references.append(sample["answer"])
 
+        # Augmented metrics.
+        # substring_match: gold scalar appears verbatim somewhere in the
+        # extracted predicted scalar (or the raw generation as a fallback).
+        # is_numeric_close: only meaningful for GSM8K.
+        # token_f1 / rouge_l: full generation vs full gold text.
+        gold_text = str(sample["answer"]) if dataset_name == "gsm8k" else gold
+        sm = substring_match(predicted or generation, gold)
+        nc = is_numeric_close(predicted, gold) if dataset_name == "gsm8k" else False
+        f1 = token_f1(generation, gold_text)
+        rl = rouge_l(generation, gold_text)
+
         writer.writerow({
             "dataset":          dataset_name,
             "strategy":         strategy,
@@ -248,6 +268,10 @@ def run_experiment(
             "predicted_answer": predicted,
             "is_correct":       int(is_correct),
             "parse_failed":     int(failed),
+            "substring_match":  int(sm),
+            "is_numeric_close": int(nc),
+            "token_f1":         round(f1, 4),
+            "rouge_l":          round(rl, 4),
             "prompt_tokens":    ptok,
             "completion_tokens": ctok,
             "total_tokens":     ptok + ctok,
@@ -262,6 +286,7 @@ def run_experiment(
         return {"dataset": dataset_name, "strategy": strategy, "n": 0, "em": 0.0, "parse_failure_rate": 0.0}
 
     # Re-read the CSV so resumed runs aggregate correctly.
+    sm_rate = nc_rate = avg_f1 = avg_rouge = 0.0
     try:
         df_full = pd.read_csv(results_path)
         df_run = df_full[
@@ -279,6 +304,16 @@ def run_experiment(
         avg_total_tokens      = float(df_run["total_tokens"].mean())
         total_tokens_used     = int(df_run["total_tokens"].sum())
         avg_latency           = float(df_run["latency_s"].mean())
+        # New per-cell metric aggregates.  Guarded so old CSVs without the
+        # columns don't crash the resume path.
+        if "substring_match" in df_run.columns:
+            sm_rate = float(df_run["substring_match"].mean()) * 100
+        if "is_numeric_close" in df_run.columns:
+            nc_rate = float(df_run["is_numeric_close"].mean()) * 100
+        if "token_f1" in df_run.columns:
+            avg_f1 = float(df_run["token_f1"].mean())
+        if "rouge_l" in df_run.columns:
+            avg_rouge = float(df_run["rouge_l"].mean())
     except Exception:
         em  = calculate_exact_match(predictions, [s["answer"] for s in samples], dataset_name)
         pfr = (parse_failures / n) * 100
@@ -286,6 +321,7 @@ def run_experiment(
         total_tokens_used = 0
 
     print(f"\n  ✓ Executed: {n} | EM = {em:.1f}% | Parse-failure rate = {pfr:.1f}%")
+    print(f"     Substring = {sm_rate:.1f}% | NumClose = {nc_rate:.1f}% | F1 = {avg_f1:.3f} | ROUGE-L = {avg_rouge:.3f}")
     print(f"  ⏱ Avg latency: {avg_latency:.1f}s | Avg total tokens: {avg_total_tokens:.0f} | Total tokens used: {total_tokens_used}")
 
     return {
@@ -295,6 +331,10 @@ def run_experiment(
         "n":                     n,
         "em":                    em,
         "parse_failure_rate":    pfr,
+        "substring_match_rate":  round(sm_rate, 1),
+        "numeric_close_rate":    round(nc_rate, 1),
+        "avg_token_f1":          round(avg_f1, 4),
+        "avg_rouge_l":           round(avg_rouge, 4),
         "avg_prompt_tokens":     round(avg_prompt_tokens, 1),
         "avg_completion_tokens": round(avg_completion_tokens, 1),
         "avg_total_tokens":      round(avg_total_tokens, 1),

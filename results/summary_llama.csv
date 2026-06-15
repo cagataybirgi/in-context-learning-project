@@ -1,7 +1,7 @@
-model,dataset,strategy,condition,source_file,n,em,parse_failure_rate,avg_prompt_tokens,avg_completion_tokens,avg_total_tokens,total_tokens_used,avg_latency_s,max_latency_s
-meta/llama-3.3-70b-instruct,gsm8k,persona_prompting,"k=def,trig=default,persona=revised,struct=on,mt=1500,T=0.0,sc=1",run_20260607_173356.csv,100,98.0,0.0,166.8,104.5,271.4,27135,18.5,219.63
-meta/llama-3.3-70b-instruct,gsm8k,standard_few_shot,"k=def,trig=default,persona=revised,struct=on,mt=1500,T=0.0,sc=1",run_20260607_173356.csv,100,97.0,0.0,176.8,169.1,345.9,34590,18.01,133.99
-meta/llama-3.3-70b-instruct,gsm8k,zero_shot_cot,"k=def,trig=default,persona=revised,struct=on,mt=1500,T=0.0,sc=1",run_20260607_173356.csv,100,99.0,0.0,133.8,180.6,314.4,31440,11.54,98.49
-meta/llama-3.3-70b-instruct,strategyqa,persona_prompting,"k=def,trig=default,persona=revised,struct=on,mt=1500,T=0.0,sc=1",run_20260607_173356.csv,100,85.0,0.0,109.8,77.0,186.8,18685,4.9,27.84
-meta/llama-3.3-70b-instruct,strategyqa,standard_few_shot,"k=def,trig=default,persona=revised,struct=on,mt=1500,T=0.0,sc=1",run_20260607_173356.csv,100,85.0,0.0,92.8,165.3,258.1,25810,25.74,201.33
-meta/llama-3.3-70b-instruct,strategyqa,zero_shot_cot,"k=def,trig=default,persona=revised,struct=on,mt=1500,T=0.0,sc=1",run_20260607_173356.csv,100,81.0,0.0,85.8,260.3,346.1,34611,25.71,232.24
+model,dataset,strategy,condition,source_file,n,em,parse_failure_rate,substring_match_rate,numeric_close_rate,avg_token_f1,avg_rouge_l,avg_prompt_tokens,avg_completion_tokens,avg_total_tokens,total_tokens_used,avg_latency_s,max_latency_s
+meta/llama-3.3-70b-instruct,gsm8k,persona_prompting,"k=def,trig=default,persona=revised,struct=on,mt=1500,T=0.0,sc=1",run_20260607_173356.csv,100,98.0,0.0,98.0,98.0,0.0332,0.0332,166.8,104.5,271.4,27135,18.5,219.63
+meta/llama-3.3-70b-instruct,gsm8k,standard_few_shot,"k=def,trig=default,persona=revised,struct=on,mt=1500,T=0.0,sc=1",run_20260607_173356.csv,100,97.0,0.0,97.0,97.0,0.0177,0.0177,176.8,169.1,345.9,34590,18.01,133.99
+meta/llama-3.3-70b-instruct,gsm8k,zero_shot_cot,"k=def,trig=default,persona=revised,struct=on,mt=1500,T=0.0,sc=1",run_20260607_173356.csv,100,99.0,0.0,99.0,99.0,0.0169,0.0169,133.8,180.6,314.4,31440,11.54,98.49
+meta/llama-3.3-70b-instruct,strategyqa,persona_prompting,"k=def,trig=default,persona=revised,struct=on,mt=1500,T=0.0,sc=1",run_20260607_173356.csv,100,85.0,0.0,85.0,0.0,0.0307,0.0307,109.8,77.0,186.8,18685,4.9,27.84
+meta/llama-3.3-70b-instruct,strategyqa,standard_few_shot,"k=def,trig=default,persona=revised,struct=on,mt=1500,T=0.0,sc=1",run_20260607_173356.csv,100,85.0,0.0,85.0,0.0,0.0156,0.0156,92.8,165.3,258.1,25810,25.74,201.33
+meta/llama-3.3-70b-instruct,strategyqa,zero_shot_cot,"k=def,trig=default,persona=revised,struct=on,mt=1500,T=0.0,sc=1",run_20260607_173356.csv,100,81.0,0.0,81.0,0.0,0.009,0.009,85.8,260.3,346.1,34611,25.71,232.24
