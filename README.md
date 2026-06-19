@@ -10,6 +10,8 @@ structured-output revision, decoding-parameter ablation, k-shot count
 ablation, CoT-trigger ablation, persona revision, self-consistency
 decoding, and categorised error analysis.
 
+**Report (Overleaf, read-only):** <https://www.overleaf.com/read/rvqttrjjvwpw#0864ca>
+
 ---
 
 ## Project Structure
