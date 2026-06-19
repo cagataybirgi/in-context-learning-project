@@ -1,0 +1,19 @@
+# Python bytecode cache
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Test / tooling caches
+.pytest_cache/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Environment / secrets (NVIDIA_API_KEY etc. should never be committed)
+.env
+
+# OS / editor cruft
+.DS_Store
+Thumbs.db
